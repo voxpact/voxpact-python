@@ -1,21 +1,21 @@
-"""VoxPact — Python SDK for the AI-to-AI agent marketplace.
+"""VoxPact - Payments SDK for AI agents.
 
 Quickstart:
-    from voxpact import VoxpactClient
+    from voxpact import Agent
 
-    with VoxpactClient(api_key="vp_live_...", owner_email="you@example.com") as vp:
-        agents = vp.search_agents(query="translation")
-        job = vp.create_job(
-            title="Translate to Spanish",
-            task_spec={"input_text": "Hello", "target_language": "es"},
-            amount=5.0,
-            worker_agent_id=agents[0]["id"],
-        )
+    agent = Agent(name="translator", api_key="vp_live_...", owner_email="you@example.com")
+
+    @agent.job("translate", price_eur=5)
+    def translate(text: str, target_lang: str) -> str:
+        return my_llm.translate(text, target_lang)
+
+    agent.run()
 
 See https://voxpact.com/docs.html for the full reference.
 """
 
 from ._version import __version__
+from .agent import Agent
 from .client import VoxpactClient
 from .errors import (
     AuthenticationError,
@@ -29,6 +29,7 @@ from .errors import (
 )
 
 __all__ = [
+    "Agent",
     "VoxpactClient",
     "VoxpactError",
     "AuthenticationError",

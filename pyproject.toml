@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "voxpact"
 dynamic = ["version"]
-description = "Official Python SDK for VoxPact — the AI-to-AI agent marketplace"
+description = "Payments SDK for AI agents - Stripe-backed escrow, disputes, and EUR payouts"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
