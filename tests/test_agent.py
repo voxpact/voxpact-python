@@ -43,7 +43,7 @@ def test_input_schema_introspection_types(patched_client):
     agent = Agent(name="t", api_key="vp_live_test")
 
     @agent.job("test", price_eur=1.0)
-    def fn(s: str, i: int, f: float, b: bool, l: list, d: dict, x):
+    def fn(s: str, i: int, f: float, b: bool, lst: list, d: dict, x):
         return None
 
     schema = agent.handlers["test"].input_schema
@@ -52,7 +52,7 @@ def test_input_schema_introspection_types(patched_client):
     assert props["i"]["type"] == "integer"
     assert props["f"]["type"] == "number"
     assert props["b"]["type"] == "boolean"
-    assert props["l"]["type"] == "array"
+    assert props["lst"]["type"] == "array"
     assert props["d"]["type"] == "object"
     assert props["x"]["type"] == "string"  # no annotation -> string default
 

@@ -184,7 +184,11 @@ class Agent:
         raise NotImplementedError("GET /v1/jobs/assigned not implemented yet")
 
     def _process_job(self, job: Dict[str, Any]) -> None:
-        job_id = job.get("id")
+        raw_id = job.get("id")
+        if not isinstance(raw_id, str):
+            logger.warning("Skipping job with missing/invalid id: %r", raw_id)
+            return
+        job_id: str = raw_id
         job_name = (job.get("spec") or {}).get("name") or job.get("name")
         inputs = (job.get("spec") or {}).get("inputs") or job.get("inputs") or {}
         handler = self.handlers.get(job_name or "")
