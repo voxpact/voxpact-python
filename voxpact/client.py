@@ -28,7 +28,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -148,7 +148,7 @@ class VoxpactClient:
             auth=False,
         )
         token = data.get("token") or data.get("jwt_token")
-        if not token:
+        if not isinstance(token, str) or not token:
             raise AuthenticationError("Token exchange did not return a JWT")
         self._jwt = token
         return token
@@ -164,6 +164,57 @@ class VoxpactClient:
         params: dict[str, Any] | None = None,
         auth: bool = True,
     ) -> dict[str, Any]:
+        """Perform an authenticated request and unwrap the envelope.
+
+        Returns the ``data`` field if present, otherwise the full body. If the
+        server returns a bare list (rare) it is wrapped as ``{"data": [...]}``
+        so callers that expect a list use :meth:`_request_list` instead.
+        """
+        body = self._raw_request(method, path, json=json, params=params, auth=auth)
+        if isinstance(body, dict):
+            data = body.get("data", body)
+            if isinstance(data, dict):
+                return data
+            return {"data": data}
+        return {"data": body}
+
+    def _request_list(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        auth: bool = True,
+        key: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Perform a request and coerce the response into a list of dicts.
+
+        Handles the three common shapes: bare list, ``{"data": [...]}``, and
+        ``{<key>: [...]}`` (e.g. ``{"agents": [...]}``).
+        """
+        body = self._raw_request(method, path, json=json, params=params, auth=auth)
+        if isinstance(body, list):
+            return cast("list[dict[str, Any]]", body)
+        if isinstance(body, dict):
+            data = body.get("data")
+            if isinstance(data, list):
+                return cast("list[dict[str, Any]]", data)
+            if key is not None:
+                items = body.get(key)
+                if isinstance(items, list):
+                    return cast("list[dict[str, Any]]", items)
+        return []
+
+    def _raw_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        auth: bool = True,
+    ) -> Any:
         headers: dict[str, str] = {}
         if auth:
             headers["Authorization"] = f"Bearer {self._ensure_jwt()}"
@@ -182,14 +233,14 @@ class VoxpactClient:
             )
 
         _raise_for_status(response)
-        body: dict[str, Any] = response.json()
+        body = response.json()
         if isinstance(body, dict) and body.get("success") is False:
             raise VoxpactError(
                 body.get("error", "Unknown error"),
                 status_code=response.status_code,
                 response=body,
             )
-        return body.get("data", body) if isinstance(body, dict) else body
+        return body
 
     # ────────────────────────────────────────────────────────────
     # AGENTS
@@ -233,8 +284,12 @@ class VoxpactClient:
         ) as http:
             response = http.post("/v1/agents/register", json=payload)
             _raise_for_status(response)
-            body: dict[str, Any] = response.json()
-            return body.get("data", body) if isinstance(body, dict) else body
+            body = response.json()
+            if isinstance(body, dict):
+                data = body.get("data", body)
+                if isinstance(data, dict):
+                    return data
+            return {"data": body}
 
     def me(self) -> dict[str, Any]:
         """Get the authenticated agent's profile."""
@@ -267,10 +322,9 @@ class VoxpactClient:
             params["capabilities"] = ",".join(capabilities)
         if min_trust_score is not None:
             params["min_trust_score"] = min_trust_score
-        data = self._request("GET", "/v1/agents/search", params=params, auth=False)
-        if isinstance(data, list):
-            return data
-        return data.get("agents") or data.get("results") or []
+        return self._request_list(
+            "GET", "/v1/agents/search", params=params, auth=False, key="agents"
+        )
 
     def rotate_api_key(self) -> dict[str, Any]:
         """Rotate the authenticated agent's API key."""
@@ -367,10 +421,9 @@ class VoxpactClient:
             params["min_budget"] = min_budget
         if max_budget is not None:
             params["max_budget"] = max_budget
-        data = self._request("GET", "/v1/jobs/open", params=params, auth=False)
-        if isinstance(data, list):
-            return data
-        return data.get("jobs") or []
+        return self._request_list(
+            "GET", "/v1/jobs/open", params=params, auth=False, key="jobs"
+        )
 
     # ────────────────────────────────────────────────────────────
     # BIDS
@@ -400,10 +453,7 @@ class VoxpactClient:
 
     def list_bids(self, job_id: str) -> list[dict[str, Any]]:
         """List bids on a job (buyer only)."""
-        data = self._request("GET", f"/v1/jobs/{job_id}/bids")
-        if isinstance(data, list):
-            return data
-        return data.get("bids") or []
+        return self._request_list("GET", f"/v1/jobs/{job_id}/bids", key="bids")
 
     # ────────────────────────────────────────────────────────────
     # MESSAGES
@@ -417,12 +467,12 @@ class VoxpactClient:
 
     def list_messages(self, job_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
         """List messages for a job."""
-        data = self._request(
-            "GET", f"/v1/jobs/{job_id}/messages", params={"limit": limit}
+        return self._request_list(
+            "GET",
+            f"/v1/jobs/{job_id}/messages",
+            params={"limit": limit},
+            key="messages",
         )
-        if isinstance(data, list):
-            return data
-        return data.get("messages") or []
 
     # ────────────────────────────────────────────────────────────
     # REVIEWS
@@ -455,10 +505,7 @@ class VoxpactClient:
 
     def list_payouts(self) -> list[dict[str, Any]]:
         """List payouts for the authenticated agent."""
-        data = self._request("GET", "/v1/payouts")
-        if isinstance(data, list):
-            return data
-        return data.get("payouts") or []
+        return self._request_list("GET", "/v1/payouts", key="payouts")
 
     # ────────────────────────────────────────────────────────────
     # PLATFORM
