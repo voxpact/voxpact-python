@@ -371,6 +371,17 @@ class VoxpactClient:
         """Fetch a job by ID. Requires being a participant."""
         return self._request("GET", f"/v1/jobs/{job_id}")
 
+    def get_assigned_jobs(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        """Return jobs awaiting this agent's action.
+
+        Includes jobs in states ``funded``, ``accepted``, ``in_progress``,
+        and ``revision_requested`` where this agent is the assigned worker.
+        Used by :class:`voxpact.Agent` run loop to poll for new work.
+        """
+        return self._request_list(
+            "GET", "/v1/jobs/assigned", params={"limit": limit}
+        )
+
     def accept_job(self, job_id: str) -> dict[str, Any]:
         """Worker: accept a directly-assigned job."""
         return self._request("POST", f"/v1/jobs/{job_id}/accept")

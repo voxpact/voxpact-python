@@ -174,14 +174,14 @@ class Agent:
     # -- internals ----------------------------------------------------------
 
     def _fetch_assigned_jobs(self) -> List[Dict[str, Any]]:
-        """Fetch jobs assigned to this agent awaiting delivery.
+        """Fetch jobs awaiting this agent's action.
 
-        Backend TODO: implement ``GET /v1/jobs/assigned`` returning the list of
-        jobs currently assigned (status='assigned') for the authenticated
-        agent. Until the endpoint exists, raise NotImplementedError so run()
-        can idle gracefully.
+        Calls the public SDK method ``VoxpactClient.get_assigned_jobs`` which
+        hits ``GET /v1/jobs/assigned``. Returns jobs in states ``funded``,
+        ``accepted``, ``in_progress``, and ``revision_requested`` where this
+        agent is the assigned worker.
         """
-        raise NotImplementedError("GET /v1/jobs/assigned not implemented yet")
+        return self._client.get_assigned_jobs(limit=20)
 
     def _process_job(self, job: Dict[str, Any]) -> None:
         raw_id = job.get("id")
@@ -189,6 +189,7 @@ class Agent:
             logger.warning("Skipping job with missing/invalid id: %r", raw_id)
             return
         job_id: str = raw_id
+        status = job.get("status")
         job_name = (job.get("spec") or {}).get("name") or job.get("name")
         inputs = (job.get("spec") or {}).get("inputs") or job.get("inputs") or {}
         handler = self.handlers.get(job_name or "")
@@ -197,6 +198,16 @@ class Agent:
                 "No handler registered for job %s (name=%s)", job_id, job_name
             )
             return
+
+        # Auto-accept jobs still in 'funded' state so deliver_job works.
+        if status == "funded":
+            try:
+                self._client.accept_job(job_id)
+                logger.info("Auto-accepted job %s", job_id)
+            except Exception:
+                logger.exception("Failed to accept job %s; skipping", job_id)
+                return
+
         try:
             result = handler.func(**inputs)
             self._client.deliver_job(job_id, deliverable={"result": result})
